@@ -24,24 +24,18 @@ A complete React + TypeScript + Vite examination platform for a 50-point MySQL e
 
 1. Install dependencies:
    npm install
-2. Copy the environment template:
-   cp .env.example .env
-3. Fill in your Supabase values.
-4. Run the app:
+2. Copy `.env.example` to `.env` and add your Supabase project URL and anon key.
+3. Run the app:
    npm run dev
 
 ## Required Environment Variables
 
 ```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-VITE_ADMIN_EMAIL=admin@college.edu
-VITE_ADMIN_PASSWORD=change-me
-VITE_APP_MODE=demo
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-> Do not expose the Supabase service-role key in frontend code. Use it only in server-side or Edge Function environments.
+The browser uses only the public anon key. Never add a service-role key to a `VITE_` variable or frontend code.
 
 ## Supabase Schema
 
@@ -71,13 +65,20 @@ This logic lives in `src/lib/grading.ts`.
 1. Create a Supabase project.
 2. Run the contents of `supabase/schema.sql` in the SQL editor.
 3. Run `supabase/seed.sql` to populate the exam and question bank.
-4. Turn on Row Level Security and confirm the policies.
-5. Create an admin user in the `profiles` table.
+4. For an existing database, run `supabase/migrations/20261019_profiles_auth.sql` to allow each signed-in user to read only their own profile without recursive RLS.
+5. Create the administrator account in Supabase Authentication, then add a matching profile row using that Auth user's UUID:
+
+   ```sql
+   insert into public.profiles (id, full_name, role)
+   values ('AUTH_USER_UUID', 'Administrator Name', 'admin');
+   ```
+
+   The profile `id` must match the Auth user's `id`. Passwords belong in Supabase Auth, not in `profiles`.
 
 ### Vercel
 
 1. Import the repository into Vercel.
-2. Set the environment variables from `.env.example`.
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your Supabase project settings.
 3. Deploy the app.
 
 ## Security Notes
@@ -89,4 +90,4 @@ This logic lives in `src/lib/grading.ts`.
 
 ## Acknowledgements
 
-This project is designed as a secure academic grade-management application for a MySQL exam while remaining easy to demo locally in a browser environment.
+This project is designed as an academic grade-management application for a MySQL exam.

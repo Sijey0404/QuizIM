@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import { EXAM_SUBJECT, EXAM_TITLE, TOTAL_POINTS, TOTAL_QUESTIONS, partSections, questions } from './lib/examData';
 import { calculateScore, gradeAnswer } from './lib/grading';
+import { getAdminProfile, isSupabaseConfigured, signInAdmin, supabase } from './services/supabase';
 import type { AttemptRecord, StudentProfile } from './types';
 
 const STUDENT_FORM_KEY = 'quiz-im-profile';
@@ -9,7 +10,6 @@ const PROGRESS_KEY = 'quiz-im-progress';
 const ATTEMPTS_KEY = 'quiz-im-attempts';
 const LAST_RESULT_KEY = 'quiz-im-last-result';
 const REVIEW_POLICY_KEY = 'quiz-im-review-policy';
-const ADMIN_KEY = 'quiz-im-admin-auth';
 
 const emptyProfile: StudentProfile = {
   fullName: '',
@@ -53,7 +53,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [adminCreds, setAdminCreds] = useState({ email: '', password: '' });
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => readStorage(ADMIN_KEY, false));
+  const [adminProfile, setAdminProfile] = useState<{ id: string; full_name: string; role: 'admin' } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
   const [adminSearch, setAdminSearch] = useState('');
   const [adminCourseFilter, setAdminCourseFilter] = useState('all');
   const [adminSectionFilter, setAdminSectionFilter] = useState('all');
@@ -66,6 +68,7 @@ function App() {
   const answeredQuestions = Object.values(answers).filter((value) => value && value.trim()).length;
   const unansweredQuestions = TOTAL_QUESTIONS - answeredQuestions;
   const allAttempts = attemptsSnapshot;
+  const isAdminAuthenticated = adminProfile !== null;
 
   const adminFilterOptions = useMemo(
     () => Array.from(new Set(allAttempts.map((attempt) => attempt.student.course))).sort(),
@@ -112,6 +115,33 @@ function App() {
   useEffect(() => {
     writeStorage(STUDENT_FORM_KEY, profile);
   }, [profile]);
+
+  useEffect(() => {
+    let active = true;
+    window.localStorage.removeItem('quiz-im-admin-auth');
+
+    const restoreAdminSession = async () => {
+      try {
+        if (!supabase) return;
+
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (!data.session) return;
+
+        const restoredProfile = await getAdminProfile(data.session.user.id);
+        if (active) setAdminProfile(restoredProfile);
+      } catch {
+        await supabase?.auth.signOut();
+      } finally {
+        if (active) setAuthLoading(false);
+      }
+    };
+
+    void restoreAdminSession();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const progressState = { currentQuestion, answers };
@@ -196,20 +226,26 @@ function App() {
     window.localStorage.removeItem('quiz-im-attempt-id');
   };
 
-  const handleAdminLogin = () => {
-    if (adminCreds.email === 'admin@college.edu' && adminCreds.password === 'admin123') {
-      setIsAdminAuthenticated(true);
-      writeStorage(ADMIN_KEY, true);
-      setView('admin');
-      return;
-    }
+  const handleAdminLogin = async () => {
+    setAuthLoading(true);
+    setAuthError('');
 
-    window.alert('Invalid admin credentials. Use admin@college.edu / admin123 for the demo.');
+    try {
+      const signedInProfile = await signInAdmin(adminCreds.email.trim(), adminCreds.password);
+      setAdminProfile(signedInProfile);
+      setAdminCreds((current) => ({ ...current, password: '' }));
+      setView('admin');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const handleAdminLogout = () => {
-    setIsAdminAuthenticated(false);
-    writeStorage(ADMIN_KEY, false);
+  const handleAdminLogout = async () => {
+    await supabase?.auth.signOut();
+    setAdminProfile(null);
+    setAuthError('');
     setView('student');
   };
 
@@ -507,6 +543,14 @@ function App() {
   };
 
   const renderAdmin = () => {
+    if (authLoading) {
+      return (
+        <div className="page-card empty-state" role="status">
+          <p>Checking administrator session...</p>
+        </div>
+      );
+    }
+
     if (!isAdminAuthenticated) {
       return (
         <div className="page-card admin-card">
@@ -514,11 +558,13 @@ function App() {
             <span className="eyebrow">Administrator Login</span>
             <h2>Secure dashboard access</h2>
           </div>
-          <div className="admin-login-grid">
+          <form className="admin-login-grid" onSubmit={(event) => { event.preventDefault(); void handleAdminLogin(); }}>
             <label>
               Email
               <input
                 type="email"
+                autoComplete="username"
+                required
                 value={adminCreds.email}
                 onChange={(event) => setAdminCreds({ ...adminCreds, email: event.target.value })}
               />
@@ -527,14 +573,18 @@ function App() {
               Password
               <input
                 type="password"
+                autoComplete="current-password"
+                required
                 value={adminCreds.password}
                 onChange={(event) => setAdminCreds({ ...adminCreds, password: event.target.value })}
               />
             </label>
-            <button className="primary-button" type="button" onClick={handleAdminLogin}>
-              Sign In
+            {authError && <p className="admin-error" role="alert">{authError}</p>}
+            {!isSupabaseConfigured && <p className="admin-error" role="alert">Configure the Supabase project URL and anon key to enable administrator login.</p>}
+            <button className="primary-button" type="submit" disabled={authLoading || !isSupabaseConfigured}>
+              {authLoading ? 'Signing in...' : 'Sign In'}
             </button>
-          </div>
+          </form>
         </div>
       );
     }
@@ -545,6 +595,7 @@ function App() {
           <div>
             <span className="eyebrow">Administrator Dashboard</span>
             <h2>Examination results</h2>
+            <p>Signed in as {adminProfile?.full_name}</p>
           </div>
           <button type="button" onClick={handleAdminLogout}>Log out</button>
         </div>

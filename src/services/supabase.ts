@@ -1,6 +1,10 @@
-export type AppMode = 'demo' | 'supabase';
+import { createClient } from '@supabase/supabase-js';
 
-export const appMode = (import.meta.env.VITE_APP_MODE ?? 'demo') as AppMode;
+export type AdminProfile = {
+  id: string;
+  full_name: string;
+  role: 'admin';
+};
 
 export const supabaseConfig = {
   url: import.meta.env.VITE_SUPABASE_URL ?? '',
@@ -9,33 +13,41 @@ export const supabaseConfig = {
 
 export const isSupabaseConfigured = Boolean(supabaseConfig.url && supabaseConfig.anonKey);
 
-export function getAdminCredentials() {
-  return {
-    email: import.meta.env.VITE_ADMIN_EMAIL ?? 'admin@college.edu',
-    password: import.meta.env.VITE_ADMIN_PASSWORD ?? 'admin123',
-  };
-}
+export const supabase = isSupabaseConfigured
+  ? createClient(supabaseConfig.url, supabaseConfig.anonKey)
+  : null;
 
-export function createSupabaseClient() {
-  if (!isSupabaseConfigured) {
-    return {
-      auth: { getUser: async () => ({ data: { user: null }, error: null }) },
-      from: () => ({
-        select: () => ({ data: [], error: null }),
-        insert: () => ({ data: [], error: null }),
-        update: () => ({ data: [], error: null }),
-        delete: () => ({ data: [], error: null }),
-      }),
-    };
+export async function getAdminProfile(userId: string): Promise<AdminProfile> {
+  if (!supabase) {
+    throw new Error('Supabase is not configured. Set the project URL and anon key.');
   }
 
-  return {
-    auth: { getUser: async () => ({ data: { user: null }, error: null }) },
-    from: () => ({
-      select: () => ({ data: [], error: null }),
-      insert: () => ({ data: [], error: null }),
-      update: () => ({ data: [], error: null }),
-      delete: () => ({ data: [], error: null }),
-    }),
-  };
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data || data.role !== 'admin') {
+    throw new Error('This Supabase account does not have administrator access.');
+  }
+
+  return data as AdminProfile;
+}
+
+export async function signInAdmin(email: string, password: string): Promise<AdminProfile> {
+  if (!supabase) {
+    throw new Error('Supabase is not configured. Set the project URL and anon key.');
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+
+  try {
+    return await getAdminProfile(data.user.id);
+  } catch (profileError) {
+    await supabase.auth.signOut();
+    throw profileError;
+  }
 }
