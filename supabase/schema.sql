@@ -89,7 +89,7 @@ for all using (
 );
 
 create policy "Students can insert attempts" on public.exam_attempts
-for insert with check (auth.uid() is not null);
+for insert with check (true);
 
 create policy "Students can view their own attempts" on public.exam_attempts
 for select using (
@@ -108,7 +108,7 @@ for all using (
 );
 
 create policy "Students can insert answers for own attempt" on public.student_answers
-for insert with check (auth.uid() is not null);
+for insert with check (true);
 
 create policy "Admins can read all student answers" on public.student_answers
 for select using (

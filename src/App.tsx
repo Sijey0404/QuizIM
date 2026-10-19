@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import { EXAM_SUBJECT, EXAM_TITLE, TOTAL_POINTS, TOTAL_QUESTIONS, partSections, questions } from './lib/examData';
 import { calculateScore, gradeAnswer } from './lib/grading';
-import { getAdminProfile, isSupabaseConfigured, signInAdmin, supabase } from './services/supabase';
+import {
+  getAdminProfile,
+  getAllExamAttemptsFromSupabase,
+  isSupabaseConfigured,
+  saveStudentAttemptToSupabase,
+  signInAdmin,
+  supabase,
+} from './services/supabase';
 import type { AttemptRecord, StudentProfile } from './types';
 
 const STUDENT_FORM_KEY = 'quiz-im-profile';
@@ -172,6 +179,33 @@ function App() {
     }
   }, [attemptId]);
 
+  useEffect(() => {
+    if (!isAdminAuthenticated || !supabase) {
+      return;
+    }
+
+    const loadRemoteAttempts = async () => {
+      try {
+        const remoteAttempts = await getAllExamAttemptsFromSupabase();
+        const localAttempts = readStorage<AttemptRecord[]>(ATTEMPTS_KEY, []);
+        const mergedAttempts = [...localAttempts, ...remoteAttempts].reduce<AttemptRecord[]>((accumulator, attempt) => {
+          const exists = accumulator.some((item) => item.id === attempt.id);
+          if (!exists) {
+            accumulator.push(attempt);
+          }
+          return accumulator;
+        }, []);
+
+        setAttemptsSnapshot(mergedAttempts);
+        writeStorage(ATTEMPTS_KEY, mergedAttempts);
+      } catch (error) {
+        console.error('Unable to load attempts from Supabase:', error);
+      }
+    };
+
+    void loadRemoteAttempts();
+  }, [isAdminAuthenticated]);
+
   const canStartExam = Boolean(profile.fullName && profile.studentId && profile.course && profile.section);
 
   const handleStartExam = () => {
@@ -187,7 +221,7 @@ function App() {
 
   const handleQuestionJump = (questionNumber: number) => setCurrentQuestion(questionNumber);
 
-  const handleSubmitAttempt = () => {
+  const handleSubmitAttempt = async () => {
     setLoading(true);
 
     const mergedAnswers = questions.map((question) => ({
@@ -212,6 +246,12 @@ function App() {
       flaggedForReview: false,
     };
 
+    try {
+      await saveStudentAttemptToSupabase(profile, summary.correct, summary.percentage);
+    } catch (error) {
+      console.error('Unable to save exam attempt to Supabase:', error);
+    }
+
     const existingAttempts = readStorage<AttemptRecord[]>(ATTEMPTS_KEY, []);
     const nextAttempts = [...existingAttempts, nextAttempt];
     writeStorage(ATTEMPTS_KEY, nextAttempts);
@@ -219,11 +259,11 @@ function App() {
     setResult(nextAttempt);
     setAttemptsSnapshot(nextAttempts);
     setSelectedAttemptId(nextAttempt.id);
-    setLoading(false);
     setView('results');
     setAttemptId(null);
     window.localStorage.removeItem(PROGRESS_KEY);
     window.localStorage.removeItem('quiz-im-attempt-id');
+    setLoading(false);
   };
 
   const handleAdminLogin = async () => {
