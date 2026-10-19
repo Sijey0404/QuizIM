@@ -9,6 +9,7 @@ import {
   saveStudentAttemptToSupabase,
   signInAdmin,
   supabase,
+  updateStudentAttemptInSupabase,
 } from './services/supabase';
 import type { AttemptRecord, StudentProfile } from './types';
 
@@ -208,10 +209,28 @@ function App() {
 
   const canStartExam = Boolean(profile.fullName && profile.studentId && profile.course && profile.section);
 
-  const handleStartExam = () => {
+  const handleStartExam = async () => {
     if (!canStartExam) return;
+
     const nextAttemptId = makeAttemptId();
     setAttemptId(nextAttemptId);
+
+    try {
+      if (supabase) {
+        const savedAttempt = await saveStudentAttemptToSupabase(profile, 0, 0, undefined, {
+          id: nextAttemptId,
+          status: 'in_progress',
+          startedAt: new Date().toISOString(),
+        });
+
+        if (savedAttempt?.id) {
+          setAttemptId(String(savedAttempt.id));
+        }
+      }
+    } catch (error) {
+      console.error('Unable to save student record before the exam begins:', error);
+    }
+
     setView('exam');
   };
 
@@ -247,7 +266,14 @@ function App() {
     };
 
     try {
-      await saveStudentAttemptToSupabase(profile, summary.correct, summary.percentage);
+      if (attemptId) {
+        await updateStudentAttemptInSupabase(attemptId, profile, summary.correct, summary.percentage, 'submitted');
+      } else {
+        await saveStudentAttemptToSupabase(profile, summary.correct, summary.percentage, undefined, {
+          status: 'submitted',
+          submittedAt: new Date().toISOString(),
+        });
+      }
     } catch (error) {
       console.error('Unable to save exam attempt to Supabase:', error);
     }

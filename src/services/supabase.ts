@@ -20,25 +20,44 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseConfig.url, supabaseConfig.anonKey)
   : null;
 
+export type ExamAttemptStatus = 'in_progress' | 'submitted' | 'manual_review' | 'graded';
+
 export function buildExamAttemptPayload(
   profile: StudentProfile,
   totalScore: number,
   percentage: number,
   examId = DEFAULT_EXAM_ID,
+  options: {
+    id?: string;
+    status?: ExamAttemptStatus;
+    startedAt?: string;
+    submittedAt?: string;
+  } = {},
 ) {
   const course = profile.course.trim();
   const section = profile.section.trim();
-
-  return {
+  const status = options.status ?? 'submitted';
+  const payload: Record<string, string | number> = {
     exam_id: examId,
     student_name: profile.fullName.trim(),
     student_number: profile.studentId.trim(),
     course_section: [course, section].filter(Boolean).join(' / '),
     total_score: totalScore,
     percentage,
-    status: 'submitted' as const,
-    submitted_at: new Date().toISOString(),
+    status,
   };
+
+  if (options.id) {
+    payload.id = options.id;
+  }
+
+  if (status === 'in_progress') {
+    payload.started_at = options.startedAt ?? new Date().toISOString();
+  } else {
+    payload.submitted_at = options.submittedAt ?? new Date().toISOString();
+  }
+
+  return payload;
 }
 
 export async function saveStudentAttemptToSupabase(
@@ -46,15 +65,52 @@ export async function saveStudentAttemptToSupabase(
   totalScore: number,
   percentage: number,
   examId = DEFAULT_EXAM_ID,
+  options: {
+    id?: string;
+    status?: ExamAttemptStatus;
+    startedAt?: string;
+    submittedAt?: string;
+  } = {},
 ) {
   if (!supabase) {
     return null;
   }
 
-  const payload = buildExamAttemptPayload(profile, totalScore, percentage, examId);
+  const payload = buildExamAttemptPayload(profile, totalScore, percentage, examId, options);
   const { data, error } = await supabase
     .from('exam_attempts')
     .insert([payload])
+    .select('id')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function updateStudentAttemptInSupabase(
+  attemptId: string,
+  profile: StudentProfile,
+  totalScore: number,
+  percentage: number,
+  status: ExamAttemptStatus = 'submitted',
+) {
+  if (!supabase) {
+    return null;
+  }
+
+  const payload = buildExamAttemptPayload(profile, totalScore, percentage, DEFAULT_EXAM_ID, {
+    status,
+    submittedAt: new Date().toISOString(),
+  });
+  const { id: _ignoredId, ...updatePayload } = payload;
+
+  const { data, error } = await supabase
+    .from('exam_attempts')
+    .update(updatePayload)
+    .eq('id', attemptId)
     .select('id')
     .single();
 

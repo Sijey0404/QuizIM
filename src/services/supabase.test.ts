@@ -26,4 +26,31 @@ describe('buildExamAttemptPayload', () => {
       submitted_at: expect.any(String),
     });
   });
+
+  it('supports creating an in-progress exam attempt record with student metadata before the exam score is submitted', () => {
+    const payload = buildExamAttemptPayload(
+      {
+        fullName: 'Jose Santos',
+        studentId: '2024-007',
+        course: 'BSIT',
+        section: 'B',
+      },
+      0,
+      0,
+      DEFAULT_EXAM_ID,
+      { id: 'test-attempt-id', status: 'in_progress' },
+    );
+
+    expect(payload).toEqual({
+      id: 'test-attempt-id',
+      exam_id: DEFAULT_EXAM_ID,
+      student_name: 'Jose Santos',
+      student_number: '2024-007',
+      course_section: 'BSIT / B',
+      total_score: 0,
+      percentage: 0,
+      status: 'in_progress',
+      started_at: expect.any(String),
+    });
+  });
 });
