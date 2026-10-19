@@ -350,7 +350,7 @@ function App() {
             <li>Subject: {EXAM_SUBJECT}</li>
             <li>Total Questions: {TOTAL_QUESTIONS}</li>
             <li>Total Points: {TOTAL_POINTS}</li>
-            <li>Passing requirement: Instructor-approved standards</li>
+            <li>Passing requirement: 30 Points</li>
           </ul>
         </div>
       </div>
