@@ -7,6 +7,21 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+  );
+$$;
+
 create table if not exists public.exams (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -70,52 +85,42 @@ alter table public.student_answers enable row level security;
 drop policy if exists "Profiles are viewable by admins" on public.profiles;
 drop policy if exists "Students can view their own profile" on public.profiles;
 drop policy if exists "Users can read their own profile" on public.profiles;
+drop policy if exists "Exam metadata is viewable to signed-in users" on public.exams;
+drop policy if exists "Admin manages questions" on public.questions;
+drop policy if exists "Students can insert attempts" on public.exam_attempts;
+drop policy if exists "Students can view their own attempts" on public.exam_attempts;
+drop policy if exists "Admins can manage all attempts" on public.exam_attempts;
+drop policy if exists "Students can insert answers for own attempt" on public.student_answers;
+drop policy if exists "Admins can read all student answers" on public.student_answers;
+drop policy if exists "Students can read answers for their own attempt" on public.student_answers;
 
 create policy "Users can read their own profile" on public.profiles
-for select using (auth.uid() = id);
+for select using (auth.uid() = id or public.is_admin());
 
 create policy "Exam metadata is viewable to signed-in users" on public.exams
 for select using (auth.uid() is not null);
 
 create policy "Admin manages questions" on public.questions
-for all using (
-  auth.uid() is not null and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-  )
-) with check (
-  auth.uid() is not null and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-  )
-);
+for all using (public.is_admin())
+with check (public.is_admin());
 
 create policy "Students can insert attempts" on public.exam_attempts
 for insert with check (true);
 
 create policy "Students can view their own attempts" on public.exam_attempts
 for select using (
-  auth.uid() is not null and student_number = COALESCE((select student_number from public.exam_attempts where id = id), '')
+  auth.uid() is not null
 );
 
 create policy "Admins can manage all attempts" on public.exam_attempts
-for all using (
-  auth.uid() is not null and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-  )
-) with check (
-  auth.uid() is not null and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-  )
-);
+for all using (public.is_admin())
+with check (public.is_admin());
 
 create policy "Students can insert answers for own attempt" on public.student_answers
 for insert with check (true);
 
 create policy "Admins can read all student answers" on public.student_answers
-for select using (
-  auth.uid() is not null and exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'
-  )
-);
+for select using (public.is_admin());
 
 create policy "Students can read answers for their own attempt" on public.student_answers
 for select using (

@@ -132,6 +132,9 @@ export async function getAdminProfile(userId: string): Promise<AdminProfile> {
     throw new Error('Supabase is not configured. Set the project URL and anon key.');
   }
 
+  const { data: currentUser, error: currentUserError } = await supabase.auth.getUser();
+  if (currentUserError) throw currentUserError;
+
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, role')
@@ -139,7 +142,38 @@ export async function getAdminProfile(userId: string): Promise<AdminProfile> {
     .maybeSingle();
 
   if (error) throw error;
-  if (!data || data.role !== 'admin') {
+
+  if (!data) {
+    const userRole = String(
+      currentUser?.user?.app_metadata?.role ?? currentUser?.user?.user_metadata?.role ?? '',
+    );
+
+    if (userRole === 'admin') {
+      const fallbackName =
+        String(currentUser?.user?.user_metadata?.full_name ?? currentUser?.user?.email ?? 'Administrator') || 'Administrator';
+
+      const { error: upsertError } = await supabase
+        .from('profiles')
+        .upsert(
+          { id: userId, full_name: fallbackName, role: 'admin' },
+          { onConflict: 'id' },
+        );
+
+      if (upsertError) throw upsertError;
+
+      return {
+        id: userId,
+        full_name: fallbackName,
+        role: 'admin',
+      };
+    }
+
+    throw new Error(
+      'This Supabase auth user is not linked to an admin profile. Add a row in public.profiles with the same id as the auth user and role = "admin".',
+    );
+  }
+
+  if (data.role !== 'admin') {
     throw new Error(
       'This Supabase auth user is not linked to an admin profile. Add a row in public.profiles with the same id as the auth user and role = "admin".',
     );
