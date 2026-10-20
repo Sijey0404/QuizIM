@@ -7,6 +7,12 @@ export type AdminProfile = {
   role: 'admin';
 };
 
+export const DEMO_ADMIN_EMAIL = 'admin@quizim.local';
+export const DEMO_ADMIN_PASSWORD = 'Admin@12345';
+
+export const isDemoAdminCredentials = (email: string, password: string) =>
+  email.trim().toLowerCase() === DEMO_ADMIN_EMAIL && password === DEMO_ADMIN_PASSWORD;
+
 export const DEFAULT_EXAM_ID = '11111111-1111-4111-8111-111111111111';
 
 export const supabaseConfig = {
@@ -128,6 +134,10 @@ export async function getAllExamAttemptsFromSupabase(): Promise<AttemptRecord[]>
 }
 
 export async function getAdminProfile(userId: string): Promise<AdminProfile> {
+  if (userId === 'demo-admin') {
+    return { id: 'demo-admin', full_name: 'Demo Admin', role: 'admin' };
+  }
+
   if (!supabase) {
     throw new Error('Supabase is not configured. Set the project URL and anon key.');
   }
@@ -183,14 +193,17 @@ export async function getAdminProfile(userId: string): Promise<AdminProfile> {
 }
 
 export async function signInAdmin(email: string, password: string): Promise<AdminProfile> {
+  if (isDemoAdminCredentials(email, password)) {
+    return { id: 'demo-admin', full_name: 'Demo Admin', role: 'admin' };
+  }
+
   if (!supabase) {
     throw new Error('Supabase is not configured. Set the project URL and anon key.');
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-
   try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
     return await getAdminProfile(data.user.id);
   } catch (profileError) {
     await supabase.auth.signOut();
