@@ -8,6 +8,7 @@ A complete React + TypeScript + Vite examination platform for a 50-point MySQL e
 - 50-question SQL exam with progress tracking and review page
 - Automated normalization and grading of SQL answers
 - Local persistence for accidental refresh recovery
+- Student registration details and final scores saved to Supabase in `exam_attempts` on submission
 - Admin authentication and dashboard with search, filtering, export, and score summaries
 - Supabase-ready schema and RLS policies for production deployment
 - Vercel deployment compatibility
@@ -45,6 +46,7 @@ The project includes a schema and seed script under `supabase/`:
 - `supabase/seed.sql`
 
 The schema is designed for tables: `profiles`, `exams`, `questions`, `exam_attempts`, and `student_answers` along with row-level security rules.
+Run both `supabase/schema.sql` and `supabase/seed.sql` in the Supabase SQL editor before accepting exam submissions. A completed submission stores the student's name, ID, course/section, score, percentage, and submission status in `exam_attempts`; a failed database save is shown to the student and does not mark the exam as submitted.
 
 ## Grading Logic
 

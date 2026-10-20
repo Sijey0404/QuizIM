@@ -71,54 +71,19 @@ export async function saveStudentAttemptToSupabase(
     startedAt?: string;
     submittedAt?: string;
   } = {},
-) {
+): Promise<void> {
   if (!supabase) {
-    return null;
+    throw new Error('Supabase is not configured. Set the project URL and anon key.');
   }
 
   const payload = buildExamAttemptPayload(profile, totalScore, percentage, examId, options);
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('exam_attempts')
-    .insert([payload])
-    .select('id')
-    .single();
+    .insert([payload]);
 
   if (error) {
     throw error;
   }
-
-  return data;
-}
-
-export async function updateStudentAttemptInSupabase(
-  attemptId: string,
-  profile: StudentProfile,
-  totalScore: number,
-  percentage: number,
-  status: ExamAttemptStatus = 'submitted',
-) {
-  if (!supabase) {
-    return null;
-  }
-
-  const payload = buildExamAttemptPayload(profile, totalScore, percentage, DEFAULT_EXAM_ID, {
-    status,
-    submittedAt: new Date().toISOString(),
-  });
-  const { id: _ignoredId, ...updatePayload } = payload;
-
-  const { data, error } = await supabase
-    .from('exam_attempts')
-    .update(updatePayload)
-    .eq('id', attemptId)
-    .select('id')
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
 }
 
 export function mapSupabaseAttemptRow(row: Record<string, unknown>): AttemptRecord {
@@ -175,7 +140,9 @@ export async function getAdminProfile(userId: string): Promise<AdminProfile> {
 
   if (error) throw error;
   if (!data || data.role !== 'admin') {
-    throw new Error('This Supabase account does not have administrator access.');
+    throw new Error(
+      'This Supabase auth user is not linked to an admin profile. Add a row in public.profiles with the same id as the auth user and role = "admin".',
+    );
   }
 
   return data as AdminProfile;
@@ -193,6 +160,10 @@ export async function signInAdmin(email: string, password: string): Promise<Admi
     return await getAdminProfile(data.user.id);
   } catch (profileError) {
     await supabase.auth.signOut();
-    throw profileError;
+    throw new Error(
+      profileError instanceof Error && profileError.message
+        ? profileError.message
+        : 'Unable to sign in. Please try again.',
+    );
   }
 }

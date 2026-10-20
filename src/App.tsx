@@ -9,7 +9,6 @@ import {
   saveStudentAttemptToSupabase,
   signInAdmin,
   supabase,
-  updateStudentAttemptInSupabase,
 } from './services/supabase';
 import type { AttemptRecord, StudentProfile } from './types';
 
@@ -50,6 +49,14 @@ const getDefaultProgress = () => ({
 const makeAttemptId = () =>
   `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return fallback;
+};
+
 function App() {
   const [view, setView] = useState<'student' | 'exam' | 'review' | 'results' | 'admin'>('student');
   const [profile, setProfile] = useState<StudentProfile>(() => readStorage(STUDENT_FORM_KEY, emptyProfile));
@@ -59,6 +66,7 @@ function App() {
   const [result, setResult] = useState<AttemptRecord | null>(() => readStorage(LAST_RESULT_KEY, null));
   const [attemptId, setAttemptId] = useState<string | null>(() => readStorage('quiz-im-attempt-id', null));
   const [loading, setLoading] = useState(false);
+  const [studentSaveError, setStudentSaveError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [adminCreds, setAdminCreds] = useState({ email: '', password: '' });
   const [adminProfile, setAdminProfile] = useState<{ id: string; full_name: string; role: 'admin' } | null>(null);
@@ -209,28 +217,12 @@ function App() {
 
   const canStartExam = Boolean(profile.fullName && profile.studentId && profile.course && profile.section);
 
-  const handleStartExam = async () => {
-    if (!canStartExam) return;
+  const handleStartExam = () => {
+    if (!canStartExam || !isSupabaseConfigured) return;
 
     const nextAttemptId = makeAttemptId();
     setAttemptId(nextAttemptId);
-
-    try {
-      if (supabase) {
-        const savedAttempt = await saveStudentAttemptToSupabase(profile, 0, 0, undefined, {
-          id: nextAttemptId,
-          status: 'in_progress',
-          startedAt: new Date().toISOString(),
-        });
-
-        if (savedAttempt?.id) {
-          setAttemptId(String(savedAttempt.id));
-        }
-      }
-    } catch (error) {
-      console.error('Unable to save student record before the exam begins:', error);
-    }
-
+    setStudentSaveError('');
     setView('exam');
   };
 
@@ -242,6 +234,7 @@ function App() {
 
   const handleSubmitAttempt = async () => {
     setLoading(true);
+    setStudentSaveError('');
 
     const mergedAnswers = questions.map((question) => ({
       questionId: question.id,
@@ -266,16 +259,11 @@ function App() {
     };
 
     try {
-      if (attemptId) {
-        await updateStudentAttemptInSupabase(attemptId, profile, summary.correct, summary.percentage, 'submitted');
-      } else {
-        await saveStudentAttemptToSupabase(profile, summary.correct, summary.percentage, undefined, {
-          status: 'submitted',
-          submittedAt: new Date().toISOString(),
-        });
-      }
+      await saveStudentAttemptToSupabase(profile, summary.correct, summary.percentage);
     } catch (error) {
-      console.error('Unable to save exam attempt to Supabase:', error);
+      setStudentSaveError(getErrorMessage(error, 'Unable to save your result. Please try again.'));
+      setLoading(false);
+      return;
     }
 
     const existingAttempts = readStorage<AttemptRecord[]>(ATTEMPTS_KEY, []);
@@ -406,9 +394,19 @@ function App() {
               placeholder="Section"
             />
           </label>
-          <button className="primary-button" type="button" onClick={handleStartExam} disabled={!canStartExam}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={handleStartExam}
+            disabled={!canStartExam || !isSupabaseConfigured}
+          >
             Start Examination
           </button>
+          {!isSupabaseConfigured && (
+            <p className="admin-error" role="alert">
+              Configure the Supabase project URL and anon key before starting. Your registration and score will be saved to Supabase when you submit the exam.
+            </p>
+          )}
         </div>
         <div className="info-panel">
           <h3>Examination Overview</h3>
@@ -549,9 +547,17 @@ function App() {
           <div>
             <h3>Confirm final submission</h3>
             <p>You are about to submit {answeredQuestions} answered questions and leave {unansweredQuestions} unanswered. This action cannot be undone.</p>
+            {studentSaveError && <p className="admin-error" role="alert">{studentSaveError}</p>}
             <div className="dialog-actions">
-              <button type="button" onClick={() => setShowConfirm(false)}>Cancel</button>
-              <button type="button" className="primary-button" onClick={handleSubmitAttempt}>Confirm Submission</button>
+              <button type="button" onClick={() => setShowConfirm(false)} disabled={loading}>Cancel</button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleSubmitAttempt}
+                disabled={loading}
+              >
+                {loading ? 'Saving...' : 'Confirm Submission'}
+              </button>
             </div>
           </div>
         </div>
